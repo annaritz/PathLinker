@@ -23,6 +23,9 @@ import sys
 from optparse import OptionParser, OptionGroup
 import types
 from math import log
+import os
+import os.path
+import glob
 
 import networkx as nx
 
@@ -34,50 +37,60 @@ from PageRank import writePageRankWeights
 # Modifies the structure of the graph by removing all edges entering
 # sources. These edges will never contribute to a
 # path, according to the PathLinker formulation.
+# Returns the set of deleted edges.
 def modifyGraphForKSP_removeEdgesToSources(net, sources):
 
     # We will never use edges leaving a target or entering a source, since
     # we do not allow start/end nodes to be internal to any path.
+    removed_edges = set()
     for u,v in net.edges():
         if not net.has_edge(u, v):
             continue
         # remove edges coming into sources
         elif v in sources:
+            removed_edges.add(net.get_edge(u,v))
             net.remove_edge(u,v)
-    return
+    return removed_edges
 
 # Modifies the structure of the graph by removing all edges 
 # exiting targets. These edges will never contribute to a
 # path, according to the PathLinker formulation.
+# Returns the set of deleted edges.
 def modifyGraphForKSP_removeEdgesFromTargets(net, targets):
 
     # We will never use edges leaving a target or entering a source, since
     # we do not allow start/end nodes to be internal to any path.
+    removed_edges = set()
     for u,v in net.edges():
         if not net.has_edge(u, v):
             continue
         # remove edges leaving targets
         elif u in targets:
+            removed_edges.add(net.get_edge(u,v))
             net.remove_edge(u,v)
-    return
+    return removed_edges
 
 # Modifies the structure of the graph by adding a supersource with an
 # edge to every source, and a supersink with an edge from every target.
 # These artificial edges are given weight 'weightForArtificialEdges',
 # which should correspond to a "free" edge in the current interpretation
 # of the graph.
+# Returns the a set of edges that were added.
 def modifyGraphForKSP_addSuperSourceSink(net, sources, targets, weightForArtificialEdges=0):
 
     # Add a supersource and supersink. Shortest paths from source to sink are the same
     # as shortest paths from "sources" to "targets".
+    added_edges = set()
     for s in sources:
         net.add_edge('source', s, weight=1)
         net.edge['source'][s]['ksp_weight'] = weightForArtificialEdges
+        added_edges.add(net.get_edge('source',s))
     for t in targets:
         net.add_edge(t, 'sink', weight=1)
         net.edge[t]['sink']['ksp_weight'] = weightForArtificialEdges
+        added_edges.add(net.get_edge(t,'sink'))
 
-    return
+    return added_edges
 
 # Apply a negative logarithmic transformation to edge weights,
 # converting multiplicative values (where higher is better) to additive
@@ -181,11 +194,18 @@ REQUIRED arguments:
         To run PathLinker on an unweighted graph, set all edge weights
         to 1 in the input network.
 
-    NODE_TYPES - A tab-delimited file denoting nodes as receptors or TRs. The first
-        column is the node name, the second is the node type, either 'source'
-        (or 'receptor') or 'target' (or 'tr' or 'tf'). Nodes which are neither receptors nor TRs may
-        be omitted from this file or may be given a type which is neither 'source'
-        nor 'target'.
+    NODE_TYPES - Either a tab-delimited file denoting nodes as receptors or TRs 
+        or a directory containing multiple tab-delimited node type files.
+
+        If the argument is a file: The first column is the node name, the second is 
+        the node type, either 'source' (or 'receptor') or 'target' (or 'tr' or 'tf'). 
+        Nodes which are neither receptors nor TRs may be omitted from this file or 
+        may be given a type which is neither 'source' nor 'target'. 
+
+        NEW FEB 2016: If the argument is a directory: Each file in the directory
+        is a tab-delimited file denoted nodes as receptors or TRs, as described above.
+        PathLinker is run for each file, and the output filenames contain the original input
+        file as an infix.
     
 '''
     parser = OptionParser(usage=usage)
@@ -213,7 +233,7 @@ REQUIRED arguments:
         help='The value of q indicates the probability that the random walker teleports back to a source node during the random walk process. (default=0.5)')
 
     group.add_option('-e', '--epsilon', action='store', type='float', default=0.0001,\
-            help='A small value used to test for convergence of the iterative implementation of PageRank. (default=0.0001)')
+        help='A small value used to test for convergence of the iterative implementation of PageRank. (default=0.0001)')
 
     group.add_option('', '--max-iters', action='store', type='int', default=500,\
         help='Maximum number of iterations to run the PageRank algorithm. (default=500)')
@@ -245,7 +265,7 @@ REQUIRED arguments:
         sys.exit('\nERROR: PathLinker.py requires %d positional arguments, %d given.' %(num_req_args, len(args)))
     
     NETWORK_FILE = args[0]
-    NODE_VALUES_FILE = args[1]
+    NODE_VALUES_ARG = args[1]
 
     # Validate options
     if(opts.PageRank and opts.no_log_transform):
@@ -310,146 +330,179 @@ REQUIRED arguments:
 
         print("\n Using only the largest weakly connected component:\n"+nx.info(net))
 
-    # Read the sources and targets on which to run PageRank and KSP
-    sources = set()
-    targets = set()
+    # NEW FEB 2016: check if NODE_VALUES_ARG is a file or directory.  Make a list of 
+    # the files to process.
+    if os.path.isfile(NODE_VALUES_ARG):
+        files_to_process = [NODE_VALUES_ARG]
+    elif os.path.isdir(NODE_VALUES_ARG):
+        files_to_process = glob.glob(NODE_VALUES_ARG+'*')
+    else:
+        sys.exit('ERROR: Node Values argument (%s) is neither a file nor a directory. Exiting.' % (NODE_VALUES_ARG))
 
-    # Read the receptors and TRs file
-    print("Reading sources and targets from " + NODE_VALUES_FILE)
-    for line in open(NODE_VALUES_FILE, 'r').readlines():
-        items = [x.strip() for x in line.rstrip().split('\t')]
+    for node_values_file in files_to_process:
+        print 'Processing Node Values File:',node_values_file
 
-        # Skip empty lines and lines beginning with '#' comments
-        if line=='':
-            continue
-        if line[0]=='#':
-            continue
-
-        if items[1] in ['source', 'receptor']:
-            sources.add(items[0])
-        elif items[1] in ['target', 'tr', 'tf']:
-            targets.add(items[0])
-
-    print('\nRead %d sources and %d targets' % (len(sources), len(targets)))
-
-    # Remove sources and targets that don't appear in the network, and do some sanity checks on sets
-    sources = set([s for s in sources if s in net])
-    targets = set([t for t in targets if t in net])
-    print('\tAfter removing sources and targets that are not in the network: %d sources and %d targets.' %(len(sources), len(targets)))
-    if len(sources)==0:
-        sys.exit('ERROR: No sources are in the network.')
-    if len(targets)==0:
-        sys.exit('ERROR: No targets are in the network.')
-    if len(sources.intersection(targets))>0:
-        sys.exit('ERROR: %d proteins are listed as both a source and target.' %(len(sources.intersection(targets))))
+        ## if there's only one file, keep output file as-is. Otherwise
+        ## append the filename to it.
+        if len(files_to_process) == 1:
+            outputname = opts.output 
+        else:
+            outputname = opts.output + node_values_file.split('/')[-1]
 
 
-    # Run PageRank on the network
-    # (if opts.PageRank == false, the weights were read from a file above)
-    if(opts.PageRank):
+        # Read the sources and targets on which to run PageRank and KSP
+        sources = set()
+        targets = set()
 
-        PR_PARAMS = {'q' : opts.q_param,\
-                     'eps' : opts.epsilon,\
-                     'maxIters' : opts.max_iters}
+        # Read the receptors and TRs file
+        print("Reading sources and targets from " + node_values_file)
+        for line in open(node_values_file, 'r').readlines():
+            items = [x.strip() for x in line.rstrip().split('\t')]
 
-        print('\nRunning PageRank on net.(q=%f)' %(opts.q_param))
+            # Skip empty lines and lines beginning with '#' comments
+            if line=='':
+                continue
+            if line[0]=='#':
+                continue
 
-        # The initial weights are entirely on the source nodes, so this 
-        # corresponds to a random walk that teleports back to the sources.
-        weights = dict.fromkeys(sources, 1.0)
-        prFinal = pagerank(net, weights, **PR_PARAMS)
+            if items[1] in ['source', 'receptor']:
+                sources.add(items[0])
+            elif items[1] in ['target', 'tr', 'tf']:
+                targets.add(items[0])
+
+        print('\nRead %d sources and %d targets' % (len(sources), len(targets)))
+
+        # Remove sources and targets that don't appear in the network, and do some sanity checks on sets
+        sources = set([s for s in sources if s in net])
+        targets = set([t for t in targets if t in net])
+        print('\tAfter removing sources and targets that are not in the network: %d sources and %d targets.' %(len(sources), len(targets)))
+        if len(sources)==0:
+            sys.exit('ERROR: No sources are in the network.')
+        if len(targets)==0:
+            sys.exit('ERROR: No targets are in the network.')
+        if len(sources.intersection(targets))>0:
+            sys.exit('ERROR: %d proteins are listed as both a source and target.' %(len(sources.intersection(targets))))
+
+
+        # Run PageRank on the network
+        # (if opts.PageRank == false, the weights were read from a file above)
+        if(opts.PageRank):
+
+            PR_PARAMS = {'q' : opts.q_param,\
+                         'eps' : opts.epsilon,\
+                         'maxIters' : opts.max_iters}
+
+            print('\nRunning PageRank on net.(q=%f)' %(opts.q_param))
+
+            # The initial weights are entirely on the source nodes, so this 
+            # corresponds to a random walk that teleports back to the sources.
+            weights = dict.fromkeys(sources, 1.0)
+            prFinal = pagerank(net, weights, **PR_PARAMS)
+            
+            # Write node visitation probabilities
+            # (function imported from PageRank)
+            writePageRankWeights(prFinal,filename='%s-node-pagerank.txt' % (outputname))
+
+            # Weight the edges by the flux from the nodes
+            calculateFluxEdgeWeights(net, prFinal)
+
+            # Write edge fluxes
+            printEdgeFluxes('%s-edge-fluxes.txt' % (outputname), net)
         
-        # Write node visitation probabilities
-        # (function imported from PageRank)
-        writePageRankWeights(prFinal,filename='%s-node-pagerank.txt' % (opts.output))
+        ## Prepare the network to run KSP
 
-        # Weight the edges by the flux from the nodes
-        calculateFluxEdgeWeights(net, prFinal)
+        # Remove improper edges from the sources and targets. This portion
+        # must be performed before the log transformation, so that the
+        # renormalization within accounts for the probability lost to the
+        # removed edges.  These transformations are executed by default;
+        # to prevent them, use the opts.allow_mult_sources or opts.allow_mult_targets
+        # arguments.
+        removed_edges = set()
+        if not opts.allow_mult_sources:
+            removed_edges.update(modifyGraphForKSP_removeEdgesToSources(net, sources))
+        if not opts.allow_mult_targets:
+            removed_edges.update(modifyGraphForKSP_removeEdgesFromTargets(net, targets))
 
-        # Write edge fluxes
-        printEdgeFluxes('%s-edge-fluxes.txt' % (opts.output), net)
-    
-    ## Prepare the network to run KSP
+        # Transform the edge weights with a log transformation
+        ## TODO: if log_transform, then this will happen with EVERY iteration.  
+        ## Need to fix.  Right now dies with an error if 
+        if(not opts.no_log_transform):
+            logTransformEdgeWeights(net)
 
-    # Remove improper edges from the sources and targets. This portion
-    # must be performed before the log transformation, so that the
-    # renormalization within accounts for the probability lost to the
-    # removed edges.  These transformations are executed by default;
-    # to prevent them, use the opts.allow_mult_sources or opts.allow_mult_targets
-    # arguments.
-    if not opts.allow_mult_sources:
-        modifyGraphForKSP_removeEdgesToSources(net, sources)
-    if not opts.allow_mult_targets:
-        modifyGraphForKSP_removeEdgesFromTargets(net, targets)
+        # Add a super source and super sink. Performed after the
+        # transformations so that the edges can be given an additive
+        # weight of 0 and thus not affect the resulting path cost.
+        added_edges = modifyGraphForKSP_addSuperSourceSink(net, sources, targets, weightForArtificialEdges = 0)
+        
+        ## Run the pathfinding algorithm
+        print('\nComputing the k=%d shortest simple paths.' %(opts.k_param))
+        paths = ksp.k_shortest_paths_yen(net, 'source', 'sink', opts.k_param, weight='ksp_weight')
 
-    # Transform the edge weights with a log transformation
-    if(not opts.no_log_transform):
-        logTransformEdgeWeights(net)
+        if len(paths)==0:
+            sys.exit('\tERROR: Targets are not reachable from the sources.')
 
-    # Add a super source and super sink. Performed after the
-    # transformations so that the edges can be given an additive
-    # weight of 0 and thus not affect the resulting path cost.
-    modifyGraphForKSP_addSuperSourceSink(net, sources, targets, weightForArtificialEdges = 0)
-    
-    ## Run the pathfinding algorithm
-    print('\nComputing the k=%d shortest simple paths.' %(opts.k_param))
-    paths = ksp.k_shortest_paths_yen(net, 'source', 'sink', opts.k_param, weight='ksp_weight')
+        ## Use the results of KSP to rank edges
 
-    if len(paths)==0:
-        sys.exit('\tERROR: Targets are not reachable from the sources.')
+        # Prepare the k shortest paths for output to flat files
+        pathgraph = nx.DiGraph()
+        for k,path in enumerate(paths, 1):
 
-    ## Use the results of KSP to rank edges
+            # Process the edges in this path
+            edges = []
+            for i in range(len(path)-1):
+                t = path[i][0]
+                h = path[i+1][0]
 
-    # Prepare the k shortest paths for output to flat files
-    pathgraph = nx.DiGraph()
-    for k,path in enumerate(paths, 1):
+                # Skip edges that have already been seen in an earlier path
+                if pathgraph.has_edge(t, h):
+                    continue
 
-        # Process the edges in this path
-        edges = []
-        for i in range(len(path)-1):
-            t = path[i][0]
-            h = path[i+1][0]
+                # Skip edges that include our artificial supersource or
+                # supersink
+                if t=='source' or h=='sink':
+                    continue
 
-            # Skip edges that have already been seen in an earlier path
-            if pathgraph.has_edge(t, h):
-                continue
+                # This is a new edge. Add it to the list and note which k it
+                # appeared in.
+                else:
+                    edges.append( (t,h,{'ksp_id':k, 'ksp_weight':net.edge[t][h]['ksp_weight']}) )
 
-            # Skip edges that include our artificial supersource or
-            # supersink
-            if t=='source' or h=='sink':
-                continue
+            # Add all new, good edges from this path to the network
+            pathgraph.add_edges_from(edges)
 
-            # This is a new edge. Add it to the list and note which k it
-            # appeared in.
-            else:
-                edges.append( (t,h,{'ksp_id':k, 'ksp_weight':net.edge[t][h]['ksp_weight']}) )
-
-        # Add all new, good edges from this path to the network
-        pathgraph.add_edges_from(edges)
-
-        # Each node is ranked by the first time it appears in a path.
-        # Identify these by check for any nodes in the graph which do
-        # not have 'ksp_id' attribute, meaning they were just added
-        # from this path.
-        for n in pathgraph.nodes():
-            if 'ksp_id' not in pathgraph.node[n]:
-                pathgraph.node[n]['ksp_id'] = k
+            # Each node is ranked by the first time it appears in a path.
+            # Identify these by check for any nodes in the graph which do
+            # not have 'ksp_id' attribute, meaning they were just added
+            # from this path.
+            for n in pathgraph.nodes():
+                if 'ksp_id' not in pathgraph.node[n]:
+                    pathgraph.node[n]['ksp_id'] = k
 
 
-    ## Write out the results to file    
+        ## Write out the results to file    
 
-    # Write a list of all edges encountered, ranked by the path they
-    # first appeared in.
-    kspGraphOutfile = '%sk_%d-ranked-edges.txt' %(opts.output, opts.k_param)
-    printKSPGraph(kspGraphOutfile, pathgraph)
-    print('\nKSP results are in "%s"' %(kspGraphOutfile))
+        # Write a list of all edges encountered, ranked by the path they
+        # first appeared in.
+        kspGraphOutfile = '%sk_%d-ranked-edges.txt' %(outputname, opts.k_param)
+        printKSPGraph(kspGraphOutfile, pathgraph)
+        print('\nKSP results are in "%s"' %(kspGraphOutfile))
 
-    # Write a list of all paths found by the ksp algorithm, if
-    # requested.
-    if(opts.write_paths):
-        kspOutfile = '%sk_%d-paths.txt' %(opts.output, opts.k_param)
-        printKSPPaths(kspOutfile, paths)
-        print('KSP paths are in "%s"' %(kspOutfile))
+        # Write a list of all paths found by the ksp algorithm, if
+        # requested.
+        if(opts.write_paths):
+            kspOutfile = '%sk_%d-paths.txt' %(outputname, opts.k_param)
+            printKSPPaths(kspOutfile, paths)
+            print('KSP paths are in "%s"' %(kspOutfile))
+
+
+        ## Now, add back in the removed edges and removed the added edges to prepare 
+        ## for the next iteration of the loop.
+        for e in removed_edges:
+            net.add_edge(e)
+        for e in added_edges:
+            net.remove_edge(e)
+
+    ## END files_to_process loop
 
     print('\nFinished!')
 
