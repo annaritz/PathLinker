@@ -45,6 +45,9 @@ REQUIRED arguments:
     parser.add_option('', '--edge-penalty', type='float', default=1.0,\
         help='Factor by which to divide every edge weight. The effect of this option is to penalize the score of every path by a factor equal to (the number of edges in the path)^(this factor). (default=1.0)')
 
+    parser.add_option('-v','--verbose',action='store_true',default=False,\
+        help='Output additional information to the console.')
+
     # Random Walk Group
     group = OptionGroup(parser, 'Random Walk Options')
 
@@ -91,6 +94,9 @@ REQUIRED arguments:
     
     NETWORK_FILE = args[0]
     NODE_VALUES_FILE = args[1]
+    if opts.verbose:
+        print('Network File: %s' % (NETWORK_FILE))
+        print('Node Values File: %s' % (NODE_VALUES_FILE))
 
     # Validate options
     if(opts.PageRank and opts.no_log_transform):
@@ -210,7 +216,9 @@ REQUIRED arguments:
     
     ## Run the pathfinding algorithm
     print('\nComputing the k=%d shortest simple paths.' %(opts.k_param))
-    paths = ksp.k_shortest_paths_yen(net, 'source', 'sink', opts.k_param, weight='ksp_weight', clip=not opts.include_tied_paths)
+    if opts.verbose:
+        print('Printing a statement to console every %d paths.' % ((opts.k_param//10)))
+    paths = ksp.k_shortest_paths_yen(net, 'source', 'sink', opts.k_param, weight='ksp_weight', clip=not opts.include_tied_paths,verbose=opts.verbose)
 
     if len(paths)==0:
         sys.exit('\tERROR: Targets are not reachable from the sources.')
@@ -273,7 +281,6 @@ REQUIRED arguments:
     # requested.
     if(opts.write_paths):
         kspOutfile = '%sk-%d-paths.txt' %(opts.output, opts.k_param)
-
         pl.printKSPPaths(kspOutfile, paths)
         print('KSP paths are in "%s"' %(kspOutfile))
 

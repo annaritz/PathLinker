@@ -156,7 +156,7 @@ def build_path_from_preds(preds, source, target):
 # 11th path will be included.
 #
 # If the graph contains n < k paths, n paths will be returned.
-def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, clip=True):
+def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, clip=True, verbose=False):
     net = G.copy()
 
     if source==target:
@@ -217,7 +217,15 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
         # checking 'clip' if needed.
         readyToTerminate = currk > k and threshSatisfied
         if(readyToTerminate and clip):
-            break;
+            if verbose:
+                print(' -- Ready to terminate because we\'ve computed enough paths. Breaking out of loop.')
+            break
+
+        if verbose and currk % (k//10) == 0:
+            if currk > k:
+                print(' Computing path #%d of %d (including ties)' % (currk,k))
+            else:
+                print(' Computing path #%d of %d' % (currk,k))
 
         # Save the edges that are hidden so we can add then back in
         # after the iteration.
@@ -269,18 +277,21 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
             if newCandidate not in candidates:
                 r = heapq.heappush(candidates, newCandidate)
 
-
         # Only need to store k-currk+1 shortest paths in the heap. This
         # gets expensive so don't do it every iteration.
         # We can only safely do this if we don't have a threshold
         # to satisfy.
-        if threshSatisfied and len(candidates)>(k-currk+1) and (currk % 100) == 0:
+        # AR edit 12/20/2018: when clip=False, k-currk+1 may become negative.
+        # only do this when k-currk+1 > 0.
+        if threshSatisfied and k-currk+1 > 0 and len(candidates)>(k-currk+1) and (currk % 100) == 0:
             keepCandidates = heapq.nsmallest(k-currk+2, candidates, key=lambda x: x[0])
             candidates = keepCandidates
             heapq.heapify(candidates)
-
+            
         # terminate early if there are no more paths from source to vertex
         if len(candidates)==0:
+            if verbose:
+                print(' -- No more candidates. Breaking out of loop.')
             break
 
         # Accept the shortest path on the candidates heap, which is
@@ -293,6 +304,8 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
             # If this path is longer than the previous one than we can
             # exit even if clip=True
             if newShortest[-1][1] != prevPath[-1][1]:
+                if verbose:
+                    print(' -- Ready to terminate and this path is longer than previous one.')
                 break
 
         # Add this to the list of prefixes for efficient lookup later
