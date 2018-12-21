@@ -254,7 +254,7 @@ REQUIRED arguments:
             else:
                 edges.append( (t,h,{
                     'ksp_id':k, 
-                    'ksp_weight':net.edge[t][h]['ksp_weight'],
+                    'ksp_weight':net.adj[t][h]['ksp_weight'],
                     'path_cost': path[-1][1]}) )
 
         # Add all new, good edges from this path to the network

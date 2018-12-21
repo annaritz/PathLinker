@@ -95,10 +95,10 @@ def modifyGraphForKSP_addSuperSourceSink(net, sources, targets, weightForArtific
     # as shortest paths from "sources" to "targets".
     for s in sources:
         net.add_edge('source', s, weight=1)
-        net.edge['source'][s]['ksp_weight'] = weightForArtificialEdges
+        net.adj['source'][s]['ksp_weight'] = weightForArtificialEdges
     for t in targets:
         net.add_edge(t, 'sink', weight=1)
-        net.edge[t]['sink']['ksp_weight'] = weightForArtificialEdges
+        net.adj[t]['sink']['ksp_weight'] = weightForArtificialEdges
     return
 
 
@@ -123,8 +123,8 @@ def applyEdgePenalty(net, weight):
         return
      
     for u,v in net.edges():
-        w = net.edge[u][v]['ksp_weight']/weight
-        net.edge[u][v]['ksp_weight'] = w
+        w = net.adj[u][v]['ksp_weight']/weight
+        net.adj[u][v]['ksp_weight'] = w
     return
 
     
@@ -146,8 +146,8 @@ def logTransformEdgeWeights(net):
     """
 
     for u,v in net.edges():
-        w = -log(max([0.000000001, net.edge[u][v]['ksp_weight']]))/log(10)
-        net.edge[u][v]['ksp_weight'] = w
+        w = -log(max([0.000000001, net.adj[u][v]['ksp_weight']]))/log(10)
+        net.adj[u][v]['ksp_weight'] = w
     return
 
 
@@ -188,8 +188,8 @@ def calculateFluxEdgeWeights(net, nodeWeights):
 
     # assign EdgeFlux scores to the edges
     for u,v in net.edges():
-        w = nodeWeights[u] * net[u][v]['weight']/net.out_degree(u, 'weight')
-        net.edge[u][v]['ksp_weight'] = w
+        w = nodeWeights[u] * net.adj[u][v]['weight']/net.out_degree(u, 'weight')
+        net.adj[u][v]['ksp_weight'] = w
     return
 
 
