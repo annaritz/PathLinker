@@ -281,9 +281,10 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
         # gets expensive so don't do it every iteration.
         # We can only safely do this if we don't have a threshold
         # to satisfy.
-        # AR edit 12/20/2018: when clip=False, k-currk+1 may become negative.
-        # only do this when k-currk+1 > 0.
-        if threshSatisfied and k-currk+1 > 0 and len(candidates)>(k-currk+1) and (currk % 100) == 0:
+        # AR edit 12/20/2018: when clip=False, we may need to store more than
+        # k-currk+1 paths. Further, k-currk+1 may become negative. Thus, only
+        # do this if clip=True
+        if threshSatisfied and clip and len(candidates)>(k-currk+1) and (currk % 100) == 0:
             keepCandidates = heapq.nsmallest(k-currk+2, candidates, key=lambda x: x[0])
             candidates = keepCandidates
             heapq.heapify(candidates)
