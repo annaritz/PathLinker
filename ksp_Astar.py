@@ -180,7 +180,12 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
 
 
     # Compute the initial shortest path to initialize Yen's
-    shortestSourceDists, shortestSourcePaths = nx.single_source_dijkstra(net, source, target, weight=weight)
+    if verbose:
+        print('NetworkX Version %s: running single source dijkstra differently depending on 1.x vs. 2.x.' % (nx.__version__))
+    if nx.__version__[0] == '1':
+        shortestSourceDists, shortestSourcePaths = nx.single_source_dijkstra(net, source, target, weight=weight)
+    else: # networkx version 2: need to run single source dijkstra from source to ALL nodes.
+        shortestSourceDists, shortestSourcePaths = nx.single_source_dijkstra(net, source, weight=weight)
 
     if target not in shortestSourcePaths:
         return []
