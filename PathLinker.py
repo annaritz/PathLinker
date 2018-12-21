@@ -39,12 +39,12 @@ def modifyGraphForKSP_removeEdgesToSources(net, sources):
 
     # We will never use edges leaving a target or entering a source, since
     # we do not allow start/end nodes to be internal to any path.
+    edges_to_remove = set()
     for u,v in net.edges():
-        if not net.has_edge(u, v):
-            continue
-        # remove edges coming into sources
-        elif v in sources:
-            net.remove_edge(u,v)
+        if v in sources:
+            edges_to_remove.add((u,v))
+    for u,v in edges_to_remove:
+        net.remove_edge(u,v)
     return
 
 
@@ -62,12 +62,13 @@ def modifyGraphForKSP_removeEdgesFromTargets(net, targets):
 
     # We will never use edges leaving a target or entering a source, since
     # we do not allow start/end nodes to be internal to any path.
+    edges_to_remove = set()
     for u,v in net.edges():
-        if not net.has_edge(u, v):
-            continue
         # remove edges leaving targets
-        elif u in targets:
-            net.remove_edge(u,v)
+        if u in targets:
+            edges_to_remove.add((u,v))
+    for u,v in edges_to_remove:
+        net.remove_edge(u,v)
     return
 
 
