@@ -25,6 +25,7 @@ from optparse import OptionParser, OptionGroup
 import heapq
 from collections import defaultdict
 from math import isinf
+import copy 
 
 import networkx as nx
 
@@ -157,7 +158,8 @@ def build_path_from_preds(preds, source, target):
 #
 # If the graph contains n < k paths, n paths will be returned.
 def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, clip=True, verbose=False):
-    net = G.copy()
+    #net = G.copy()
+    net = copy.deepcopy(G)
 
     if source==target:
         return [(source, 0.0)]
@@ -166,10 +168,12 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
 
     # Compute the original distance from the source to use for the heuristic
     # function.
-    net.reverse(copy=False)
-    minDists = nx.single_source_dijkstra_path_length(net, target, weight=weight)
-    net.reverse(copy=False)
-
+    #print('TARGET: %d incoming and %d outgoing' % (len(list(net.predecessors(target))),len(list(net.successors(target)))))
+    rev_net = net.reverse(copy=True)
+    #print('TARGET: %d incoming and %d outgoing' % (len(list(net.predecessors(target))),len(list(net.successors(target)))))
+    minDists = nx.single_source_dijkstra_path_length(rev_net, target, weight=weight)
+    #print('minDists',minDists)
+    #net = net.reverse(copy=False)
     # Heuristic function for the A* search, using distances
     # in the original network. Note that this function is monotone.
     def heuristicF(u):
@@ -242,25 +246,29 @@ def k_shortest_paths_yen(G, source, target, k=1, weight='weight', thresh=None, c
         for i in range(len(prevPath)-1):
             x, xcost = prevPath[i]
 
+            orig_edges = nx.number_of_edges(net)
             # hide edges incoming to x until iteration currk is over to
             # avoid finding cycles. Note that this effect is cumlative,
             # meaning that while processing the current node in the path,
             # all incoming edges to this node and all previous nodes
             # have been hidden.
+            edges_to_remove = set()
             for u,v, edata in net.in_edges(x, data=True):
                 hiddenEdges.append( (u,v, edata) )
-                net.remove_edge(u,v)
+                edges_to_remove.add((u,v))
+            net.remove_edges_from(edges_to_remove)
 
             # for each previously-found shortest path P_j with the same first i nodes as
             # the first i nodes of prevPath, hide the edge from x to the i+1 node in P_j
             # to ensure we don't re-find a previously found path.
             # Lookup the prefixes in a cache to disallow them. Requires more memory 
             # to store the cache, but saves scanning the list of found paths
+            edges_to_remove = set()
             for repNode in prefixCache[tuple(prevPath[:i+1])]:
                 if net.has_edge(x, repNode):
                     hiddenEdges.append( (x, repNode, net.get_edge_data(x,repNode)) )
-                    net.remove_edge(x,repNode)
-
+                    edges_to_remove.add((x,repNode))
+            net.remove_edges_from(edges_to_remove)
 
             # concatenate prevPath[:i+1] and shortest path from x->target,
             # and add this path to candidates
